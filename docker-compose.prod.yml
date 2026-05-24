@@ -1,14 +1,15 @@
 name: securo
 
 x-backend-env: &backend-env
-  DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/securo
-  SECRET_KEY: ${SECRET_KEY:-dev-secret-change-in-production}
-  DEBUG: ${DEBUG:-false}
-  FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
+  # Substituímos os valores estáticos por variáveis do ambiente (.env)
+  DATABASE_URL: postgresql+asyncpg://${DB_USER:-postgres}:${DB_PASSWORD}@db:5432/${DB_NAME:-securo}
+  SECRET_KEY: ${SECRET_KEY}
+  DEBUG: "false" # Forçado falso para produção
+  FRONTEND_URL: ${FRONTEND_URL}
   PLUGGY_CLIENT_ID: ${PLUGGY_CLIENT_ID:-}
   PLUGGY_CLIENT_SECRET: ${PLUGGY_CLIENT_SECRET:-}
   OPENEXCHANGERATES_APP_ID: ${OPENEXCHANGERATES_APP_ID:-}
-  PLUGGY_OAUTH_REDIRECT_URI: ${PLUGGY_OAUTH_REDIRECT_URI:-http://localhost:3000/oauth/callback}
+  PLUGGY_OAUTH_REDIRECT_URI: ${PLUGGY_OAUTH_REDIRECT_URI}
   REDIS_URL: redis://redis:6379/0
   STORAGE_LOCAL_PATH: /app/data/attachments
 
@@ -30,44 +31,45 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
+    restart: unless-stopped
 
   db:
-    # pgvector/pgvector:pg16 is a drop-in replacement for postgres:16
-    # that bundles the pgvector extension, required by the agents
-    # knowledge-base (RAG) migration introduced in v0.11.0.
     image: ${DB_IMAGE:-pgvector/pgvector:pg16}
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: securo
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME:-securo}
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
+      test: [ "CMD-SHELL", "pg_isready -U ${DB_USER:-postgres}" ]
       interval: 5s
       timeout: 3s
       retries: 5
+    restart: unless-stopped
 
   backend:
     <<: *backend-base
     command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
     ports:
-      - "${BACKEND_PORT:-8000}:8000"
+      # Amarrado ao localhost para proteção. O Nginx vai buscar em http://127.0.0.1:8000
+      - "127.0.0.1:${BACKEND_PORT:-8000}:8000"
 
   frontend:
     image: ghcr.io/securo-finance/securo-frontend:latest
     ports:
-      - "${FRONTEND_PORT:-3000}:80"
+      # Amarrado ao localhost para proteção. O Nginx vai buscar em http://127.0.0.1:3000
+      - "127.0.0.1:${FRONTEND_PORT:-3000}:80"
     environment:
       BACKEND_URL: http://backend:8000
-      FRONTEND_URL: http://localhost:3000
+      FRONTEND_URL: ${FRONTEND_URL}
     depends_on:
       - backend
     restart: unless-stopped
 
   celery-worker:
     <<: *backend-base
-    # Limit to 2 workers to save RAM (default = number of CPUs).
+    # Limitado a 2 workers para economizar a RAM da VPS Oracle
     command: celery -A app.worker worker --loglevel=info --concurrency=2
 
   celery-beat:
