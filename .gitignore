@@ -6,6 +6,8 @@
 docs/plans/
 tmp/
 docker-compose.override.yml
+# Configuração local do Docker Compose
+docker-compose.litweb.yml
 
 # Ignore local configuration files
 .vscode/
